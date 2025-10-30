@@ -48,7 +48,7 @@ curl http://localhost:11434
 
 ```powershell
 # Run the application
-python main_new.py
+python main.py
 ```
 
 You should see:
@@ -189,6 +189,25 @@ ollama serve
 ollama run llama3.2
 ```
 
+### Error: "Model requires more system memory" or "unable to load full model on GPU"
+Your GPU VRAM is insufficient for the selected model. Use a smaller model or force CPU-only:
+
+```powershell
+# Pull a smaller model (one-time)
+ollama pull llama3.2:1b
+
+# Force CPU at the CLI for this run
+ollama run llama3.2:1b -o num_gpu=0 "Say hello"
+
+# Ensure backend uses small model
+# Edit src/.env and set:
+# OLLAMA_MODEL=llama3.2:1b
+
+# Restart backend after changing .env
+```
+
+Note: The backend will automatically retry generation with CPU-only (num_gpu=0) if it detects a GPU memory error.
+
 ### Error: "Module not found"
 ```powershell
 # Make sure you're in the Rag directory
@@ -202,7 +221,7 @@ pip install -r requirements.txt
 
 ```
 Rag/
-├── main_new.py              # Main application entry point
+├── main.py                  # Main application entry point
 ├── config.py                # Configuration settings
 ├── requirements.txt         # Python dependencies
 ├── .env                     # Environment variables
@@ -226,7 +245,7 @@ Rag/
 ## 🎉 Next Steps
 
 1. ✅ Install dependencies: `pip install -r requirements.txt`
-2. ✅ Start the server: `python main_new.py`
+2. ✅ Start the server: `python main.py`
 3. ✅ Upload papers via http://localhost:8000/docs
 4. ✅ Query papers and test the RAG system
 5. 📝 Document your approach in APPROACH.md

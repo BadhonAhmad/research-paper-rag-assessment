@@ -13,6 +13,7 @@ from services.pdf_processor import PDFProcessor
 from services.embedding_service import EmbeddingService
 from services.qdrant_client import QdrantService
 from services.rag_pipeline import RAGPipeline
+from services.llm_service import LLMService
 
 # Import database initialization
 from models import init_db
@@ -62,12 +63,18 @@ qdrant_service = QdrantService(
     vector_dim=embedding_service.get_dimension()
 )
 
+print("  Initializing LLM service (Gemini)...")
+llm_service = LLMService(
+    gemini_api_key=config.GEMINI_API_KEY,
+    gemini_model=config.GEMINI_MODEL,
+    max_context_length=config.MAX_CONTEXT_LENGTH,
+)
+
 print("  Initializing RAG pipeline...")
 rag_pipeline = RAGPipeline(
     embedding_service=embedding_service,
     qdrant_service=qdrant_service,
-    ollama_url=config.OLLAMA_BASE_URL,
-    ollama_model=config.OLLAMA_MODEL,
+    llm_service=llm_service,
     max_context_length=config.MAX_CONTEXT_LENGTH
 )
 
@@ -112,12 +119,12 @@ if __name__ == "__main__":
     print(f"📡 API: http://{config.API_HOST}:{config.API_PORT}")
     print(f"📚 Docs: http://{config.API_HOST}:{config.API_PORT}/docs")
     print(f"🔍 Qdrant: {config.QDRANT_HOST}:{config.QDRANT_PORT}")
-    print(f"🤖 Ollama: {config.OLLAMA_BASE_URL} (model: {config.OLLAMA_MODEL})")
+    print(f"🤖 LLM: Google Gemini (model: {config.GEMINI_MODEL})")
     print("="*60 + "\n")
     
-    # Important: point uvicorn to this module (main_new:app) for reload
+    # Important: point uvicorn to this module (main:app) for reload
     uvicorn.run(
-        "main_new:app",
+        "main:app",
         host=config.API_HOST,
         port=config.API_PORT,
         reload=True

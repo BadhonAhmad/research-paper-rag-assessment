@@ -6,6 +6,7 @@ import requests
 from typing import List, Dict, Tuple
 from services.embedding_service import EmbeddingService
 from services.qdrant_client import QdrantService
+from services.llm_service import LLMService
 
 
 class RAGPipeline:
@@ -15,8 +16,7 @@ class RAGPipeline:
         self,
         embedding_service: EmbeddingService,
         qdrant_service: QdrantService,
-        ollama_url: str,
-        ollama_model: str,
+        llm_service: LLMService,
         max_context_length: int = 2000
     ):
         """
@@ -25,14 +25,12 @@ class RAGPipeline:
         Args:
             embedding_service: Service for generating embeddings
             qdrant_service: Service for vector search
-            ollama_url: URL for Ollama API
-            ollama_model: Model name in Ollama
+            llm_service: Text generation service (DeepSeek/Ollama)
             max_context_length: Maximum context length in tokens
         """
         self.embedding_service = embedding_service
         self.qdrant_service = qdrant_service
-        self.ollama_url = ollama_url
-        self.ollama_model = ollama_model
+        self.llm_service = llm_service
         self.max_context_length = max_context_length
     
     def query(
@@ -180,32 +178,10 @@ Instructions:
 Answer:"""
         
         try:
-            # Call Ollama API
-            response = requests.post(
-                f"{self.ollama_url}/api/generate",
-                json={
-                    "model": self.ollama_model,
-                    "prompt": prompt,
-                    "stream": False,
-                    "options": {
-                        "temperature": 0.7,
-                        "top_p": 0.9,
-                    }
-                },
-                timeout=60
-            )
-            
-            if response.status_code == 200:
-                result = response.json()
-                answer = result.get('response', '').strip()
-                return answer if answer else "Unable to generate an answer."
-            else:
-                print(f"Ollama API error: {response.status_code}")
-                return "Error: Could not generate answer from language model."
-                
+            return self.llm_service.generate_text(prompt)
         except Exception as e:
-            print(f"Error calling Ollama: {str(e)}")
-            return f"Error generating answer: {str(e)}"
+            print(f"Error generating with LLM service: {e}")
+            return f"Error generating answer: {e}"
     
     def _calculate_confidence(self, search_results: List[Dict]) -> float:
         """

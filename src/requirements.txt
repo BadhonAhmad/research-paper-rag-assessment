@@ -21,8 +21,8 @@ qdrant-client
 sentence-transformers
 numpy
 
-# Ollama client
-ollama
+# Google Generative AI
+google-genai
 
 # Additional utilities
 requests
