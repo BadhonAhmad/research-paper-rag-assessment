@@ -61,13 +61,37 @@ async def upload_paper(
     - Generates embeddings
     - Stores in Qdrant and database
     """
+    # Validate file
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="No file provided")
+    
     if not file.filename.endswith('.pdf'):
-        raise HTTPException(status_code=400, detail="Only PDF files are supported")
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid file type. Only PDF files are supported. Received: {file.filename}"
+        )
+    
+    # Check file size (50 MB limit)
+    file.file.seek(0, 2)  # Seek to end
+    file_size = file.file.tell()
+    file.file.seek(0)  # Reset to beginning
+    
+    if file_size > 50 * 1024 * 1024:  # 50 MB
+        raise HTTPException(
+            status_code=400,
+            detail=f"File too large. Maximum size is 50 MB. Your file: {file_size / (1024*1024):.2f} MB"
+        )
+    
+    if file_size == 0:
+        raise HTTPException(status_code=400, detail="File is empty")
     
     # Check if paper already exists
     existing = db.query(Paper).filter(Paper.filename == file.filename).first()
     if existing:
-        raise HTTPException(status_code=400, detail=f"Paper '{file.filename}' already exists")
+        raise HTTPException(
+            status_code=400,
+            detail=f"Paper '{file.filename}' already exists with ID {existing.id}. Delete it first or rename the file."
+        )
     
     # Save uploaded file temporarily
     with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
@@ -79,7 +103,10 @@ async def upload_paper(
         chunks, metadata = pdf_processor.process_pdf(tmp_path)
         
         if not chunks:
-            raise HTTPException(status_code=400, detail="Failed to extract text from PDF")
+            raise HTTPException(
+                status_code=400,
+                detail="Failed to extract text from PDF. The file may be corrupted, password-protected, or contain only images."
+            )
         
         # Create paper record
         paper = Paper(
@@ -132,12 +159,29 @@ async def upload_paper(
             message="Paper uploaded and processed successfully"
         )
         
+    except HTTPException:
+        # Re-raise HTTP exceptions
+        raise
     except Exception as e:
         # Mark as failed
         if 'paper' in locals():
             paper.processed = -1
             db.commit()
-        raise HTTPException(status_code=500, detail=f"Error processing paper: {str(e)}")
+        
+        # Provide helpful error messages for common issues
+        error_msg = str(e).lower()
+        if "connection" in error_msg or "qdrant" in error_msg:
+            raise HTTPException(
+                status_code=503,
+                detail=f"Vector database connection error. Please ensure Qdrant is running on {config.QDRANT_HOST}:{config.QDRANT_PORT}"
+            )
+        elif "out of memory" in error_msg or "memory" in error_msg:
+            raise HTTPException(
+                status_code=507,
+                detail="Insufficient memory to process this paper. Try a smaller file or restart the service."
+            )
+        else:
+            raise HTTPException(status_code=500, detail=f"Error processing paper: {str(e)}")
     
     finally:
         # Clean up temp file
@@ -213,8 +257,33 @@ async def query_papers(
         
         return QueryResponse(**result)
         
+    except HTTPException:
+        raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error processing query: {str(e)}")
+        # Provide helpful error messages for common issues
+        error_msg = str(e).lower()
+        if "connection" in error_msg or "qdrant" in error_msg:
+            raise HTTPException(
+                status_code=503,
+                detail=f"Vector database connection error. Please ensure Qdrant is running."
+            )
+        elif "api" in error_msg and ("key" in error_msg or "auth" in error_msg):
+            raise HTTPException(
+                status_code=401,
+                detail="LLM API authentication error. Please check your GEMINI_API_KEY in .env file."
+            )
+        elif "rate" in error_msg or "quota" in error_msg:
+            raise HTTPException(
+                status_code=429,
+                detail="API rate limit exceeded. Please wait a moment before trying again."
+            )
+        elif "no papers" in error_msg or "no documents" in error_msg:
+            raise HTTPException(
+                status_code=404,
+                detail="No papers found in the database. Please upload papers first."
+            )
+        else:
+            raise HTTPException(status_code=500, detail=f"Error processing query: {str(e)}")
 
 
 @router.get("/api/papers", response_model=List[PaperDetail])
@@ -224,17 +293,25 @@ async def list_papers(
     db: Session = Depends(get_db)
 ):
     """List all uploaded papers"""
-    papers = db.query(Paper).filter(Paper.processed == 1).offset(skip).limit(limit).all()
-    return papers
+    try:
+        papers = db.query(Paper).filter(Paper.processed == 1).offset(skip).limit(limit).all()
+        return papers
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error retrieving papers: {str(e)}")
 
 
 @router.get("/api/papers/{paper_id}", response_model=PaperDetail)
 async def get_paper(paper_id: int, db: Session = Depends(get_db)):
     """Get details of a specific paper"""
-    paper = db.query(Paper).filter(Paper.id == paper_id).first()
-    if not paper:
-        raise HTTPException(status_code=404, detail="Paper not found")
-    return paper
+    try:
+        paper = db.query(Paper).filter(Paper.id == paper_id).first()
+        if not paper:
+            raise HTTPException(status_code=404, detail=f"Paper with ID {paper_id} not found")
+        return paper
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error retrieving paper: {str(e)}")
 
 
 @router.delete("/api/papers/{paper_id}")
@@ -242,7 +319,7 @@ async def delete_paper(paper_id: int, db: Session = Depends(get_db)):
     """Delete a paper and its vectors"""
     paper = db.query(Paper).filter(Paper.id == paper_id).first()
     if not paper:
-        raise HTTPException(status_code=404, detail="Paper not found")
+        raise HTTPException(status_code=404, detail=f"Paper with ID {paper_id} not found")
     
     try:
         # Delete from Qdrant
@@ -250,7 +327,11 @@ async def delete_paper(paper_id: int, db: Session = Depends(get_db)):
         
         # Delete file if exists
         if paper.file_path and os.path.exists(paper.file_path):
-            os.remove(paper.file_path)
+            try:
+                os.remove(paper.file_path)
+            except Exception as file_error:
+                # Log but don't fail if file deletion fails
+                print(f"Warning: Could not delete file {paper.file_path}: {file_error}")
         
         # Invalidate cached queries for this paper
         if query_cache and config.CACHE_ENABLED:
@@ -260,37 +341,49 @@ async def delete_paper(paper_id: int, db: Session = Depends(get_db)):
         db.delete(paper)
         db.commit()
         
-        return {"message": f"Paper '{paper.title}' deleted successfully"}
+        return {
+            "success": True,
+            "message": f"Paper '{paper.title}' deleted successfully",
+            "paper_id": paper_id
+        }
         
+    except HTTPException:
+        raise
     except Exception as e:
+        db.rollback()
         raise HTTPException(status_code=500, detail=f"Error deleting paper: {str(e)}")
 
 
 @router.get("/api/papers/{paper_id}/stats", response_model=PaperStats)
 async def get_paper_stats(paper_id: int, db: Session = Depends(get_db)):
     """Get statistics for a specific paper"""
-    paper = db.query(Paper).filter(Paper.id == paper_id).first()
-    if not paper:
-        raise HTTPException(status_code=404, detail="Paper not found")
-    
-    # Get queries that referenced this paper
-    queries = db.query(QueryModel).filter(
-        QueryModel.paper_ids_filter.contains([paper_id])
-    ).all()
-    
-    total_queries = len(queries)
-    avg_confidence = sum(q.confidence for q in queries) / total_queries if total_queries > 0 else 0.0
-    
-    # Extract common topics (simplified)
-    most_common_topics = ["methodology", "results", "datasets"]  # Placeholder
-    
-    return PaperStats(
-        paper_id=paper.id,
-        title=paper.title,
-        total_queries=total_queries,
-        avg_confidence=round(avg_confidence, 3),
-        most_common_topics=most_common_topics
-    )
+    try:
+        paper = db.query(Paper).filter(Paper.id == paper_id).first()
+        if not paper:
+            raise HTTPException(status_code=404, detail=f"Paper with ID {paper_id} not found")
+        
+        # Get queries that referenced this paper
+        queries = db.query(QueryModel).filter(
+            QueryModel.paper_ids_filter.contains([paper_id])
+        ).all()
+        
+        total_queries = len(queries)
+        avg_confidence = sum(q.confidence for q in queries) / total_queries if total_queries > 0 else 0.0
+        
+        # Extract common topics (simplified)
+        most_common_topics = ["methodology", "results", "datasets"]  # Placeholder
+        
+        return PaperStats(
+            paper_id=paper.id,
+            title=paper.title,
+            total_queries=total_queries,
+            avg_confidence=round(avg_confidence, 3),
+            most_common_topics=most_common_topics
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error retrieving paper statistics: {str(e)}")
 
 
 @router.get("/api/queries/history", response_model=List[QueryHistory])
@@ -300,11 +393,14 @@ async def get_query_history(
     db: Session = Depends(get_db)
 ):
     """Get recent query history"""
-    queries = db.query(QueryModel).order_by(
-        QueryModel.query_date.desc()
-    ).offset(skip).limit(limit).all()
-    
-    return queries
+    try:
+        queries = db.query(QueryModel).order_by(
+            QueryModel.query_date.desc()
+        ).offset(skip).limit(limit).all()
+        
+        return queries
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error retrieving query history: {str(e)}")
 
 
 @router.get("/api/analytics/popular")
@@ -313,85 +409,128 @@ async def get_popular_topics(
     db: Session = Depends(get_db)
 ):
     """Get most queried topics"""
-    # Get all queries
-    queries = db.query(QueryModel).all()
-    
-    # Count word frequency in questions (simplified)
-    word_freq = {}
-    stop_words = {'what', 'is', 'the', 'how', 'in', 'a', 'an', 'of', 'to', 'and', 'for'}
-    
-    for query in queries:
-        words = query.question.lower().split()
-        for word in words:
-            if len(word) > 3 and word not in stop_words:
-                word_freq[word] = word_freq.get(word, 0) + 1
-    
-    # Sort by frequency
-    popular = sorted(word_freq.items(), key=lambda x: x[1], reverse=True)[:limit]
-    
-    return {
-        "popular_topics": [{"topic": word, "count": count} for word, count in popular],
-        "total_queries": len(queries)
-    }
+    try:
+        # Get all queries
+        queries = db.query(QueryModel).all()
+        
+        if not queries:
+            return {
+                "popular_topics": [],
+                "total_queries": 0,
+                "message": "No queries found yet"
+            }
+        
+        # Count word frequency in questions (simplified)
+        word_freq = {}
+        stop_words = {'what', 'is', 'the', 'how', 'in', 'a', 'an', 'of', 'to', 'and', 'for'}
+        
+        for query in queries:
+            words = query.question.lower().split()
+            for word in words:
+                if len(word) > 3 and word not in stop_words:
+                    word_freq[word] = word_freq.get(word, 0) + 1
+        
+        # Sort by frequency
+        popular = sorted(word_freq.items(), key=lambda x: x[1], reverse=True)[:limit]
+        
+        return {
+            "popular_topics": [{"topic": word, "count": count} for word, count in popular],
+            "total_queries": len(queries)
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error retrieving analytics: {str(e)}")
 
 
 @router.get("/health")
 async def health_check():
     """Health check endpoint"""
-    return {
-        "status": "healthy",
-        "services": {
+    try:
+        services_status = {
             "pdf_processor": pdf_processor is not None,
             "embedding_service": embedding_service is not None,
             "qdrant": qdrant_service is not None,
             "rag_pipeline": rag_pipeline is not None,
             "query_cache": query_cache is not None and config.CACHE_ENABLED
         }
-    }
+        
+        # Check if all critical services are running
+        all_healthy = all([
+            services_status["pdf_processor"],
+            services_status["embedding_service"],
+            services_status["qdrant"],
+            services_status["rag_pipeline"]
+        ])
+        
+        return {
+            "status": "healthy" if all_healthy else "degraded",
+            "services": services_status,
+            "timestamp": datetime.now().isoformat()
+        }
+    except Exception as e:
+        return {
+            "status": "unhealthy",
+            "error": str(e),
+            "timestamp": datetime.now().isoformat()
+        }
 
 
 @router.get("/api/cache/stats")
 async def get_cache_stats():
     """Get cache statistics and performance metrics"""
-    if not query_cache or not config.CACHE_ENABLED:
-        return {
-            "enabled": False,
-            "message": "Cache is disabled"
-        }
-    
-    stats = query_cache.get_stats()
-    stats['enabled'] = True
-    return stats
+    try:
+        if not query_cache or not config.CACHE_ENABLED:
+            return {
+                "enabled": False,
+                "message": "Cache is disabled. Set CACHE_ENABLED=true in .env to enable caching."
+            }
+        
+        stats = query_cache.get_stats()
+        stats['enabled'] = True
+        return stats
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error retrieving cache statistics: {str(e)}")
 
 
 @router.post("/api/cache/clear")
 async def clear_cache():
     """Clear all cached queries"""
-    if not query_cache or not config.CACHE_ENABLED:
+    try:
+        if not query_cache or not config.CACHE_ENABLED:
+            raise HTTPException(
+                status_code=400,
+                detail="Cache is disabled. Set CACHE_ENABLED=true in .env to enable caching."
+            )
+        
+        query_cache.clear()
         return {
-            "enabled": False,
-            "message": "Cache is disabled"
+            "success": True,
+            "message": "Cache cleared successfully",
+            "enabled": True
         }
-    
-    query_cache.clear()
-    return {
-        "message": "Cache cleared successfully",
-        "enabled": True
-    }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error clearing cache: {str(e)}")
 
 
 @router.post("/api/cache/cleanup")
 async def cleanup_expired_cache():
     """Remove expired entries from cache"""
-    if not query_cache or not config.CACHE_ENABLED:
+    try:
+        if not query_cache or not config.CACHE_ENABLED:
+            raise HTTPException(
+                status_code=400,
+                detail="Cache is disabled. Set CACHE_ENABLED=true in .env to enable caching."
+            )
+        
+        removed_count = query_cache.cleanup_expired()
         return {
-            "enabled": False,
-            "message": "Cache is disabled"
+            "success": True,
+            "message": f"Removed {removed_count} expired entries" if removed_count > 0 else "No expired entries to remove",
+            "removed_count": removed_count,
+            "enabled": True
         }
-    
-    removed_count = query_cache.cleanup_expired()
-    return {
-        "message": f"Removed {removed_count} expired entries",
-        "removed_count": removed_count,
-        "enabled": True
-    }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error cleaning up cache: {str(e)}")
