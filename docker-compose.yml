@@ -34,10 +34,13 @@ services:
       - API_PORT=8000
       - QDRANT_HOST=qdrant
       - QDRANT_PORT=6333
-      - GEMINI_API_KEY=AIzaSyDr-GXvJ6odErRgGasd4s40wKfXneX5hcM
-      - GEMINI_MODEL=gemini-2.5-flash
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - GEMINI_MODEL=${GEMINI_MODEL:-gemini-2.5-flash}
       - EMBEDDING_MODEL=sentence-transformers/all-MiniLM-L6-v2
       - DATABASE_URL=sqlite:///./research_papers.db
+      - CACHE_ENABLED=${CACHE_ENABLED:-true}
+      - CACHE_TTL_SECONDS=${CACHE_TTL_SECONDS:-3600}
+      - CACHE_MAX_SIZE=${CACHE_MAX_SIZE:-1000}
     volumes:
       - ./src:/app
       - backend_data:/app/data

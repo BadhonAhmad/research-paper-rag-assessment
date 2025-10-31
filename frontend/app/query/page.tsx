@@ -18,6 +18,7 @@ interface QueryResponse {
   sources_used: string[];
   confidence: number;
   response_time: number;
+  cached?: boolean;
 }
 
 export default function QueryPage() {
@@ -119,7 +120,14 @@ export default function QueryPage() {
         <div className="space-y-6">
           {/* Answer */}
           <div className="bg-blue-50 border border-blue-200 rounded-lg p-6">
-            <h2 className="text-xl font-semibold text-blue-900 mb-3">Answer</h2>
+            <div className="flex justify-between items-start mb-3">
+              <h2 className="text-xl font-semibold text-blue-900">Answer</h2>
+              {result.cached && (
+                <span className="bg-green-100 text-green-800 text-xs font-semibold px-2.5 py-0.5 rounded flex items-center gap-1">
+                  ⚡ Cached
+                </span>
+              )}
+            </div>
             <div className="text-gray-800 leading-relaxed prose prose-blue max-w-none">
               <ReactMarkdown remarkPlugins={[remarkGfm]}>
                 {result.answer}
@@ -132,7 +140,9 @@ export default function QueryPage() {
               </span>
               <span>
                 <strong>Response Time:</strong>{" "}
-                {result.response_time.toFixed(2)}s
+                {result.cached
+                  ? "< 0.01s"
+                  : `${result.response_time.toFixed(2)}s`}
               </span>
             </div>
           </div>

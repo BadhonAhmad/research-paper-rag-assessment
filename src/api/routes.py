@@ -19,6 +19,7 @@ from services.pdf_processor import PDFProcessor
 from services.embedding_service import EmbeddingService
 from services.qdrant_client import QdrantService
 from services.rag_pipeline import RAGPipeline
+from services.cache_service import QueryCache
 import config
 
 # Initialize services (will be injected in main.py)
@@ -26,6 +27,7 @@ pdf_processor = None
 embedding_service = None
 qdrant_service = None
 rag_pipeline = None
+query_cache = None
 
 router = APIRouter()
 
@@ -34,14 +36,16 @@ def init_services(
     pdf_proc: PDFProcessor,
     embed_svc: EmbeddingService,
     qdrant_svc: QdrantService,
-    rag_pipe: RAGPipeline
+    rag_pipe: RAGPipeline,
+    cache: Optional[QueryCache] = None
 ):
     """Initialize services for routes"""
-    global pdf_processor, embedding_service, qdrant_service, rag_pipeline
+    global pdf_processor, embedding_service, qdrant_service, rag_pipeline, query_cache
     pdf_processor = pdf_proc
     embedding_service = embed_svc
     qdrant_service = qdrant_svc
     rag_pipeline = rag_pipe
+    query_cache = cache
 
 
 @router.post("/api/papers/upload", response_model=PaperUploadResponse)
@@ -115,6 +119,10 @@ async def upload_paper(
         paper.chunk_count = stored_count
         db.commit()
         
+        # Clear cache since new content is available (queries without paper_ids filter should get new results)
+        if query_cache and config.CACHE_ENABLED:
+            query_cache.clear()  # Simple approach: clear all cache when new paper added
+        
         return PaperUploadResponse(
             paper_id=paper.id,
             title=paper.title,
@@ -146,21 +154,50 @@ async def query_papers(
     db: Session = Depends(get_db)
 ):
     """
-    Query research papers using RAG
+    Query research papers using RAG with caching
     
+    - Checks cache for repeated queries (instant response)
     - Retrieves relevant chunks using vector similarity
-    - Generates answer using Ollama
+    - Generates answer using Gemini
     - Returns answer with citations
+    - Caches result for future queries
     """
     try:
-        # Run RAG pipeline
-        result = rag_pipeline.query(
-            question=request.question,
-            top_k=request.top_k,
-            paper_ids=request.paper_ids
-        )
+        # Check cache first (if enabled)
+        cache_hit = False
+        if query_cache and config.CACHE_ENABLED:
+            cached_result = query_cache.get(
+                question=request.question,
+                top_k=request.top_k,
+                paper_ids=request.paper_ids
+            )
+            
+            if cached_result:
+                cache_hit = True
+                result = cached_result
+                # Add cache indicator to response
+                result['cached'] = True
+                result['response_time'] = 0.001  # Near-instant from cache
         
-        # Save query to database
+        # Cache miss - run RAG pipeline
+        if not cache_hit:
+            result = rag_pipeline.query(
+                question=request.question,
+                top_k=request.top_k,
+                paper_ids=request.paper_ids
+            )
+            result['cached'] = False
+            
+            # Cache the result for future queries
+            if query_cache and config.CACHE_ENABLED:
+                query_cache.set(
+                    question=request.question,
+                    response=result,
+                    top_k=request.top_k,
+                    paper_ids=request.paper_ids
+                )
+        
+        # Save query to database (even for cache hits to track usage)
         query_record = QueryModel(
             question=request.question,
             answer=result['answer'],
@@ -214,6 +251,10 @@ async def delete_paper(paper_id: int, db: Session = Depends(get_db)):
         # Delete file if exists
         if paper.file_path and os.path.exists(paper.file_path):
             os.remove(paper.file_path)
+        
+        # Invalidate cached queries for this paper
+        if query_cache and config.CACHE_ENABLED:
+            query_cache.invalidate_by_paper(paper_id)
         
         # Delete from database
         db.delete(paper)
@@ -303,6 +344,54 @@ async def health_check():
             "pdf_processor": pdf_processor is not None,
             "embedding_service": embedding_service is not None,
             "qdrant": qdrant_service is not None,
-            "rag_pipeline": rag_pipeline is not None
+            "rag_pipeline": rag_pipeline is not None,
+            "query_cache": query_cache is not None and config.CACHE_ENABLED
         }
+    }
+
+
+@router.get("/api/cache/stats")
+async def get_cache_stats():
+    """Get cache statistics and performance metrics"""
+    if not query_cache or not config.CACHE_ENABLED:
+        return {
+            "enabled": False,
+            "message": "Cache is disabled"
+        }
+    
+    stats = query_cache.get_stats()
+    stats['enabled'] = True
+    return stats
+
+
+@router.post("/api/cache/clear")
+async def clear_cache():
+    """Clear all cached queries"""
+    if not query_cache or not config.CACHE_ENABLED:
+        return {
+            "enabled": False,
+            "message": "Cache is disabled"
+        }
+    
+    query_cache.clear()
+    return {
+        "message": "Cache cleared successfully",
+        "enabled": True
+    }
+
+
+@router.post("/api/cache/cleanup")
+async def cleanup_expired_cache():
+    """Remove expired entries from cache"""
+    if not query_cache or not config.CACHE_ENABLED:
+        return {
+            "enabled": False,
+            "message": "Cache is disabled"
+        }
+    
+    removed_count = query_cache.cleanup_expired()
+    return {
+        "message": f"Removed {removed_count} expired entries",
+        "removed_count": removed_count,
+        "enabled": True
     }

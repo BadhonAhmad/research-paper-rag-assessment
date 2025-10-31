@@ -14,6 +14,7 @@ from services.embedding_service import EmbeddingService
 from services.qdrant_client import QdrantService
 from services.rag_pipeline import RAGPipeline
 from services.llm_service import LLMService
+from services.cache_service import QueryCache
 
 # Import database initialization
 from models import init_db
@@ -78,12 +79,19 @@ rag_pipeline = RAGPipeline(
     max_context_length=config.MAX_CONTEXT_LENGTH
 )
 
+print("  Initializing query cache...")
+query_cache = QueryCache(
+    ttl_seconds=config.CACHE_TTL_SECONDS,
+    max_size=config.CACHE_MAX_SIZE
+) if config.CACHE_ENABLED else None
+
 # Initialize routes with services
 routes.init_services(
     pdf_proc=pdf_processor,
     embed_svc=embedding_service,
     qdrant_svc=qdrant_service,
-    rag_pipe=rag_pipeline
+    rag_pipe=rag_pipeline,
+    cache=query_cache
 )
 
 # Include router
@@ -120,6 +128,10 @@ if __name__ == "__main__":
     print(f"📚 Docs: http://{config.API_HOST}:{config.API_PORT}/docs")
     print(f"🔍 Qdrant: {config.QDRANT_HOST}:{config.QDRANT_PORT}")
     print(f"🤖 LLM: Google Gemini (model: {config.GEMINI_MODEL})")
+    if config.CACHE_ENABLED:
+        print(f"⚡ Cache: ENABLED (TTL: {config.CACHE_TTL_SECONDS}s, Max: {config.CACHE_MAX_SIZE} queries)")
+    else:
+        print("⚡ Cache: DISABLED")
     print("="*60 + "\n")
     
     # Important: point uvicorn to this module (main:app) for reload

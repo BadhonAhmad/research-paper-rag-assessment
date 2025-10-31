@@ -39,6 +39,7 @@ class QueryResponse(BaseModel):
     sources_used: List[str]
     confidence: float = Field(..., ge=0.0, le=1.0)
     response_time: float
+    cached: bool = False  # Indicates if response came from cache
 
 
 class PaperDetail(BaseModel):
