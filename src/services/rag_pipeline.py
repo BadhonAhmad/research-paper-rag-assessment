@@ -25,7 +25,7 @@ class RAGPipeline:
         Args:
             embedding_service: Service for generating embeddings
             qdrant_service: Service for vector search
-            llm_service: Text generation service (DeepSeek/Ollama)
+            llm_service: Text generation service (Google Gemini)
             max_context_length: Maximum context length in tokens
         """
         self.embedding_service = embedding_service
@@ -75,7 +75,7 @@ class RAGPipeline:
             # Step 3: Assemble context and prepare citations
             context, citations = self._prepare_context(search_results)
             
-            # Step 4: Generate answer using Ollama
+            # Step 4: Generate answer using Gemini
             answer = self._generate_answer(question, context)
             
             # Step 5: Calculate confidence
@@ -151,7 +151,7 @@ class RAGPipeline:
     
     def _generate_answer(self, question: str, context: str) -> str:
         """
-        Generate answer using Ollama
+        Generate answer using Gemini
         
         Args:
             question: User's question

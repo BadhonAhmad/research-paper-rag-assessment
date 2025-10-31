@@ -4,7 +4,7 @@
 
 A production-ready RAG (Retrieval-Augmented Generation) system that helps researchers query academic papers using:
 - **Qdrant** for vector storage
-- **Ollama (llama3.2)** for answer generation
+- **Google Gemini** for answer generation
 - **sentence-transformers** for embeddings
 - **FastAPI** for REST API
 - **SQLite** for metadata storage
@@ -15,7 +15,7 @@ A production-ready RAG (Retrieval-Augmented Generation) system that helps resear
 
 ✅ You have already set up:
 - Docker with Qdrant running on port 6333
-- Ollama with llama3.2 model installed
+- Google Gemini API key
 - Python 3.10+
 
 ---
@@ -38,10 +38,8 @@ pip install -r requirements.txt
 # Check Qdrant is running
 curl http://localhost:6333
 
-# Check Ollama is running
-curl http://localhost:11434
-
-# Should see responses from both
+# Verify Gemini API key is set in .env
+# GEMINI_API_KEY=your-key-here
 ```
 
 ### Step 3: Start the RAG System
@@ -59,7 +57,7 @@ You should see:
 📡 API: http://0.0.0.0:8000
 📚 Docs: http://0.0.0.0:8000/docs
 🔍 Qdrant: localhost:6333
-🤖 Ollama: http://localhost:11434 (model: llama3.2)
+🤖 LLM: Google Gemini (model: gemini-2.5-flash)
 ============================================================
 ```
 
@@ -180,33 +178,20 @@ Try these questions:
 docker run -d -p 6333:6333 --name qdrant qdrant/qdrant
 ```
 
-### Error: "Connection refused to Ollama"
+### Error: "Gemini API error" or "Invalid API key"
 ```powershell
-# Check Ollama is running
-ollama serve
+# Verify your Gemini API key is correct in src/.env
+# GEMINI_API_KEY=your-valid-key-here
 
-# In another terminal, test
-ollama run llama3.2
+# Get a new key at: https://aistudio.google.com/app/apikey
+
+# Restart backend after updating .env
+cd src
+python main.py
 ```
 
-### Error: "Model requires more system memory" or "unable to load full model on GPU"
-Your GPU VRAM is insufficient for the selected model. Use a smaller model or force CPU-only:
-
-```powershell
-# Pull a smaller model (one-time)
-ollama pull llama3.2:1b
-
-# Force CPU at the CLI for this run
-ollama run llama3.2:1b -o num_gpu=0 "Say hello"
-
-# Ensure backend uses small model
-# Edit src/.env and set:
-# OLLAMA_MODEL=llama3.2:1b
-
-# Restart backend after changing .env
-```
-
-Note: The backend will automatically retry generation with CPU-only (num_gpu=0) if it detects a GPU memory error.
+### Error: "Rate limit exceeded"
+Gemini free tier has rate limits (60 requests/min). Wait a minute and try again.
 
 ### Error: "Module not found"
 ```powershell

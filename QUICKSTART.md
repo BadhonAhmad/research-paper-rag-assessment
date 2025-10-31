@@ -6,7 +6,7 @@ You now have a full-stack RAG system with:
 - ✅ FastAPI backend (Python)
 - ✅ Next.js frontend (TypeScript + Tailwind)
 - ✅ Qdrant vector database
-- ✅ Ollama LLM integration
+- ✅ Google Gemini LLM integration
 
 ---
 
@@ -103,33 +103,25 @@ Invoke-RestMethod -Uri "http://localhost:8000/api/query" `
 
 ## Troubleshooting
 
-### Ollama 500 Errors or GPU OOM
+### Gemini API Errors
 
-If queries return empty answers with messages like "Ollama API error: 500" or you see "unable to load full model on GPU":
+If queries return errors from Gemini:
 
 ```powershell
-# 1) Check if Ollama is running
-curl http://localhost:11434
+# Check your API key is valid
+# Edit src/.env and verify:
+# GEMINI_API_KEY=your-valid-key
+# GEMINI_MODEL=gemini-2.5-flash
 
-# 2) Start the server if needed (keep this terminal open)
-ollama serve
-
-# 3) Pull a small model (one-time)
-ollama pull llama3.2:1b
-
-# 4) Test generation with CPU only
-ollama run llama3.2:1b -o num_gpu=0 "Say hello"
-
-# 5) Ensure backend uses the small model
-# Edit src/.env and set:
-# OLLAMA_MODEL=llama3.2:1b
-
-# 6) Restart backend for env changes to take effect
+# Restart backend for env changes to take effect
+cd src
+python main.py
 ```
 
 Notes:
-- The backend now automatically retries generation with CPU-only if a GPU error occurs.
-- You can force CPU-only at the CLI with: `-o num_gpu=0`.
+- Gemini has a generous free tier (60 requests per minute)
+- If you hit rate limits, wait a minute and try again
+- Check API key at https://aistudio.google.com/app/apikey
 
 ### Port Already in Use
 
@@ -167,7 +159,7 @@ taskkill /PID <PID> /F
          │ HTTP
          ▼
 ┌─────────────────┐      ┌──────────┐      ┌──────────┐
-│  FastAPI        │─────▶│  Qdrant  │      │  Ollama  │
+│  FastAPI        │─────▶│  Qdrant  │      │  Gemini  │
 │  Backend        │      │  :6333   │      │  :11434  │
 │  :8000          │      └──────────┘      └──────────┘
 └─────────────────┘            │
@@ -217,6 +209,6 @@ taskkill /PID <PID> /F
 - First upload is slower (model loading)
 - First query per session is slower (model loading)
 - Adjust `top_k` for faster queries (lower = faster)
-- Use smaller Ollama model for speed (llama3.2:1b)
+- Gemini 2.5 Flash is optimized for speed and quality
 
 Enjoy your RAG system! 🎉

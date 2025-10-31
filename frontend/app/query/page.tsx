@@ -1,67 +1,72 @@
-'use client'
+"use client";
 
-import { useState } from 'react'
+import { useState } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 
 interface Citation {
-  paper_title: string
-  section: string | null
-  page: number
-  relevance_score: number
-  chunk_text?: string
+  paper_title: string;
+  section: string | null;
+  page: number;
+  relevance_score: number;
+  chunk_text?: string;
 }
 
 interface QueryResponse {
-  answer: string
-  citations: Citation[]
-  sources_used: string[]
-  confidence: number
-  response_time: number
+  answer: string;
+  citations: Citation[];
+  sources_used: string[];
+  confidence: number;
+  response_time: number;
 }
 
 export default function QueryPage() {
-  const [question, setQuestion] = useState('')
-  const [topK, setTopK] = useState(5)
-  const [loading, setLoading] = useState(false)
-  const [result, setResult] = useState<QueryResponse | null>(null)
-  const [error, setError] = useState('')
+  const [question, setQuestion] = useState("");
+  const [topK, setTopK] = useState(5);
+  const [loading, setLoading] = useState(false);
+  const [result, setResult] = useState<QueryResponse | null>(null);
+  const [error, setError] = useState("");
 
   const handleQuery = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!question.trim()) return
+    e.preventDefault();
+    if (!question.trim()) return;
 
-    setLoading(true)
-    setError('')
-    setResult(null)
+    setLoading(true);
+    setError("");
+    setResult(null);
 
     try {
-      const response = await fetch('http://localhost:8000/api/query', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+      const response = await fetch("http://localhost:8000/api/query", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           question: question.trim(),
           top_k: topK,
         }),
-      })
+      });
 
-      const data = await response.json()
+      const data = await response.json();
 
       if (response.ok) {
-        setResult(data)
+        setResult(data);
       } else {
-        setError(data.detail || 'Query failed')
+        setError(data.detail || "Query failed");
       }
     } catch (err) {
-      setError('Network error - is the backend running?')
+      setError("Network error - is the backend running?");
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
-  }
+  };
 
   return (
     <div className="max-w-6xl mx-auto">
       <h1 className="text-3xl font-bold mb-6">Query Papers</h1>
 
-      <form onSubmit={handleQuery} className="bg-white border border-gray-300 rounded-lg p-6 mb-6">
+      <form
+        onSubmit={handleQuery}
+        className="bg-white border border-gray-300 rounded-lg p-6 mb-6"
+      >
         <div className="mb-4">
           <label className="block text-sm font-medium text-gray-700 mb-2">
             Your Question
@@ -100,7 +105,7 @@ export default function QueryPage() {
           disabled={!question.trim() || loading}
           className="w-full bg-green-600 text-white py-2 px-4 rounded hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
         >
-          {loading ? 'Searching...' : 'Ask Question'}
+          {loading ? "Searching..." : "Ask Question"}
         </button>
       </form>
 
@@ -115,15 +120,19 @@ export default function QueryPage() {
           {/* Answer */}
           <div className="bg-blue-50 border border-blue-200 rounded-lg p-6">
             <h2 className="text-xl font-semibold text-blue-900 mb-3">Answer</h2>
-            <p className="text-gray-800 leading-relaxed whitespace-pre-wrap">
-              {result.answer}
-            </p>
+            <div className="text-gray-800 leading-relaxed prose prose-blue max-w-none">
+              <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                {result.answer}
+              </ReactMarkdown>
+            </div>
             <div className="mt-4 flex gap-4 text-sm text-gray-600">
               <span>
-                <strong>Confidence:</strong> {(result.confidence * 100).toFixed(1)}%
+                <strong>Confidence:</strong>{" "}
+                {(result.confidence * 100).toFixed(1)}%
               </span>
               <span>
-                <strong>Response Time:</strong> {result.response_time.toFixed(2)}s
+                <strong>Response Time:</strong>{" "}
+                {result.response_time.toFixed(2)}s
               </span>
             </div>
           </div>
@@ -162,7 +171,7 @@ export default function QueryPage() {
                     </span>
                   </div>
                   <div className="text-sm text-gray-600 mb-2">
-                    <strong>Section:</strong> {citation.section || 'N/A'} •{' '}
+                    <strong>Section:</strong> {citation.section || "N/A"} •{" "}
                     <strong>Page:</strong> {citation.page}
                   </div>
                   {citation.chunk_text && (
@@ -181,11 +190,13 @@ export default function QueryPage() {
         <h3 className="font-semibold mb-2">💡 Example Questions</h3>
         <ul className="text-sm text-gray-700 space-y-1">
           <li>• What methodology was used in the transformer paper?</li>
-          <li>• Which activation functions are commonly used in neural networks?</li>
+          <li>
+            • Which activation functions are commonly used in neural networks?
+          </li>
           <li>• Compare the performance of CNNs and Transformers.</li>
           <li>• What datasets are used to evaluate computer vision models?</li>
         </ul>
       </div>
     </div>
-  )
+  );
 }
