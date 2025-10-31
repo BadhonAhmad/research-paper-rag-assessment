@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { API_ENDPOINTS } from '@/lib/api'
 
 interface QueryHistory {
   id: number
@@ -18,16 +19,21 @@ export default function HistoryPage() {
   const [error, setError] = useState('')
 
   const fetchHistory = async () => {
+    console.log('📊 [History] Fetching query history...');
     setLoading(true)
     try {
-      const response = await fetch('http://localhost:8000/api/queries/history?limit=50')
+      const response = await fetch(`${API_ENDPOINTS.queryHistory}?limit=50`)
       if (response.ok) {
         const data = await response.json()
+        console.log(`✅ [History] Loaded ${data.length} queries`);
         setHistory(data)
       } else {
+        console.error('❌ [History] Failed to fetch history');
         setError('Failed to fetch history')
       }
     } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : 'Unknown error';
+      console.error('❌ [History] Network error:', errorMsg);
       setError('Network error - is the backend running?')
     } finally {
       setLoading(false)

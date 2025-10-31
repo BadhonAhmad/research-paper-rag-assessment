@@ -1,53 +1,75 @@
-'use client'
+"use client";
 
-import { useState } from 'react'
+import { useState } from "react";
+import { API_ENDPOINTS } from "@/lib/api";
 
 export default function UploadPage() {
-  const [file, setFile] = useState<File | null>(null)
-  const [uploading, setUploading] = useState(false)
-  const [result, setResult] = useState<any>(null)
-  const [error, setError] = useState<string>('')
+  const [file, setFile] = useState<File | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const [result, setResult] = useState<any>(null);
+  const [error, setError] = useState<string>("");
 
   const handleUpload = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!file) return
+    e.preventDefault();
+    if (!file) return;
 
-    setUploading(true)
-    setError('')
-    setResult(null)
+    console.log("📤 [Upload] Starting file upload:", file.name);
+    console.log("   File size:", (file.size / (1024 * 1024)).toFixed(2), "MB");
 
-    const formData = new FormData()
-    formData.append('file', file)
+    setUploading(true);
+    setError("");
+    setResult(null);
+
+    const formData = new FormData();
+    formData.append("file", file);
+
+    const startTime = performance.now();
 
     try {
-      const response = await fetch('http://localhost:8000/api/papers/upload', {
-        method: 'POST',
+      console.log("   → Sending POST request to", API_ENDPOINTS.uploadPaper);
+      const response = await fetch(API_ENDPOINTS.uploadPaper, {
+        method: "POST",
         body: formData,
-      })
+      });
 
-      const data = await response.json()
-      
+      const data = await response.json();
+      const uploadTime = ((performance.now() - startTime) / 1000).toFixed(2);
+
       if (response.ok) {
-        setResult(data)
-        setFile(null)
+        console.log(
+          `✅ [Upload] Paper uploaded successfully in ${uploadTime}s`
+        );
+        console.log(`   Paper ID: ${data.paper_id}`);
+        console.log(`   Title: ${data.title}`);
+        console.log(`   Chunks: ${data.chunk_count}`);
+        setResult(data);
+        setFile(null);
         // Reset file input
-        const fileInput = document.querySelector('input[type="file"]') as HTMLInputElement
-        if (fileInput) fileInput.value = ''
+        const fileInput = document.querySelector(
+          'input[type="file"]'
+        ) as HTMLInputElement;
+        if (fileInput) fileInput.value = "";
       } else {
-        setError(data.detail || 'Upload failed')
+        console.error("❌ [Upload] Error:", data.detail || "Upload failed");
+        setError(data.detail || "Upload failed");
       }
     } catch (err) {
-      setError('Network error - is the backend running?')
+      const errorMsg = err instanceof Error ? err.message : "Unknown error";
+      console.error("❌ [Upload] Network error:", errorMsg);
+      setError("Network error - is the backend running?");
     } finally {
-      setUploading(false)
+      setUploading(false);
     }
-  }
+  };
 
   return (
     <div className="max-w-2xl mx-auto">
       <h1 className="text-3xl font-bold mb-6">Upload Research Papers</h1>
 
-      <form onSubmit={handleUpload} className="bg-white border border-gray-300 rounded-lg p-6 mb-6">
+      <form
+        onSubmit={handleUpload}
+        className="bg-white border border-gray-300 rounded-lg p-6 mb-6"
+      >
         <div className="mb-4">
           <label className="block text-sm font-medium text-gray-700 mb-2">
             Select PDF File
@@ -66,7 +88,7 @@ export default function UploadPage() {
           disabled={!file || uploading}
           className="w-full bg-blue-600 text-white py-2 px-4 rounded hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
         >
-          {uploading ? 'Uploading...' : 'Upload Paper'}
+          {uploading ? "Uploading..." : "Upload Paper"}
         </button>
       </form>
 
@@ -78,13 +100,25 @@ export default function UploadPage() {
 
       {result && (
         <div className="bg-green-50 border border-green-200 rounded-lg p-6">
-          <h2 className="text-xl font-semibold text-green-800 mb-3">✅ Upload Successful</h2>
+          <h2 className="text-xl font-semibold text-green-800 mb-3">
+            ✅ Upload Successful
+          </h2>
           <div className="space-y-2 text-sm">
-            <p><strong>Paper ID:</strong> {result.paper_id}</p>
-            <p><strong>Title:</strong> {result.title}</p>
-            <p><strong>Filename:</strong> {result.filename}</p>
-            <p><strong>Total Pages:</strong> {result.total_pages}</p>
-            <p><strong>Chunks Created:</strong> {result.chunk_count}</p>
+            <p>
+              <strong>Paper ID:</strong> {result.paper_id}
+            </p>
+            <p>
+              <strong>Title:</strong> {result.title}
+            </p>
+            <p>
+              <strong>Filename:</strong> {result.filename}
+            </p>
+            <p>
+              <strong>Total Pages:</strong> {result.total_pages}
+            </p>
+            <p>
+              <strong>Chunks Created:</strong> {result.chunk_count}
+            </p>
             <p className="text-green-600">{result.message}</p>
           </div>
         </div>
@@ -100,5 +134,5 @@ export default function UploadPage() {
         </ul>
       </div>
     </div>
-  )
+  );
 }

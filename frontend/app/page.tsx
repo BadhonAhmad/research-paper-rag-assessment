@@ -1,3 +1,5 @@
+import API_BASE_URL from "@/lib/api";
+
 export default function Home() {
   return (
     <div className="max-w-4xl mx-auto">
@@ -7,9 +9,7 @@ export default function Home() {
         <h2 className="text-2xl font-semibold mb-3">🚀 System Status</h2>
         <p className="text-gray-700">
           Backend API running at:{" "}
-          <code className="bg-gray-200 px-2 py-1 rounded">
-            http://localhost:8000
-          </code>
+          <code className="bg-gray-200 px-2 py-1 rounded">{API_BASE_URL}</code>
         </p>
       </div>
 

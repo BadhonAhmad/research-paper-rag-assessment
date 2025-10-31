@@ -94,9 +94,15 @@ class PDFProcessor:
         return None
     
     def _detect_section(self, text: str) -> str:
-        """Detect which section this text belongs to"""
-        text_lower = text.lower()[:100]  # Check first 100 chars
+        """
+        Detect which section of the paper this text belongs to
         
+        Helps organize chunks by academic paper structure for better context
+        when answering queries (e.g., "What was the methodology?")
+        """
+        text_lower = text.lower()[:100]  # Check first 100 chars for section headers
+        
+        # Common section names in academic papers
         sections = {
             'Abstract': ['abstract'],
             'Introduction': ['introduction', '1. introduction', 'i. introduction'],
@@ -118,17 +124,27 @@ class PDFProcessor:
         """
         Process PDF: extract text, create chunks, add metadata
         
+        This is the main processing pipeline:
+        1. Extract metadata (title, authors, year)
+        2. Extract text from each page
+        3. Clean and normalize text
+        4. Detect section for each page
+        5. Split into semantic chunks using RecursiveCharacterTextSplitter
+        6. Add metadata to each chunk for citation tracking
+        
         Args:
             pdf_path: Path to PDF file
-            start_page: Starting page (1-indexed)
-            end_page: Ending page (inclusive)
+            start_page: Starting page (1-indexed, default: 1)
+            end_page: Ending page (inclusive, default: all pages)
             
         Returns:
-            Tuple of (chunks, metadata)
+            Tuple of (chunks as Document objects, metadata dict)
         """
+        print(f"📄 [PDF] Processing PDF: {os.path.basename(pdf_path)}")
         try:
             reader = PdfReader(pdf_path)
             total_pages = len(reader.pages)
+            print(f"   Total pages: {total_pages}")
             
             # Validate page range
             if start_page < 1:
@@ -138,7 +154,7 @@ class PDFProcessor:
             if start_page > end_page:
                 return [], {}
             
-            # Extract metadata
+            # Extract metadata (title, authors, year, page count)
             metadata = self.extract_metadata(pdf_path)
             
             # Extract text from pages
@@ -148,11 +164,11 @@ class PDFProcessor:
                 content = page.extract_text()
                 
                 if content and content.strip():
-                    # Clean text
+                    # Clean text: remove excessive newlines and normalize whitespace
                     content = content.replace('\n\n\n', '\n\n')
                     content = ' '.join(content.split())
                     
-                    # Detect section
+                    # Detect which section this page belongs to (Introduction, Methods, etc.)
                     section = self._detect_section(content)
                     
                     doc = Document(
@@ -167,15 +183,18 @@ class PDFProcessor:
                     )
                     documents.append(doc)
             
-            # Create chunks
+            # Create chunks using RecursiveCharacterTextSplitter
+            # This splits on natural boundaries (\n\n, \n, ., etc.) to maintain semantic coherence
+            print(f"   Splitting into chunks (size={self.chunk_size}, overlap={self.chunk_overlap})...")
             chunks = self.text_splitter.split_documents(documents)
+            print(f"   ✅ Created {len(chunks)} chunks")
             
-            # Add chunk index to metadata
+            # Add chunk index to metadata for tracking
             for i, chunk in enumerate(chunks):
                 chunk.metadata['chunk_index'] = i
             
             return chunks, metadata
             
         except Exception as e:
-            print(f"Error processing PDF: {str(e)}")
+            print(f"❌ [PDF] Error processing PDF: {str(e)}")
             return [], {}

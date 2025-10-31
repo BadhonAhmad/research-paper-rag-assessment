@@ -42,6 +42,13 @@ class RAGPipeline:
         """
         Process a query through the RAG pipeline
         
+        RAG (Retrieval-Augmented Generation) workflow:
+        1. Embed the user's question into a vector
+        2. Retrieve most relevant chunks from vector DB
+        3. Assemble context from retrieved chunks
+        4. Generate answer using LLM with context
+        5. Calculate confidence and prepare citations
+        
         Args:
             question: User's question
             top_k: Number of chunks to retrieve
@@ -51,19 +58,25 @@ class RAGPipeline:
             Dict with answer, citations, confidence, etc.
         """
         start_time = time.time()
+        print(f"🔄 [RAG] Starting RAG pipeline...")
         
         try:
-            # Step 1: Embed the question
+            # Step 1: Embed the question into vector space
+            print(f"   Step 1: Embedding question...")
             query_embedding = self.embedding_service.embed_text(question)
+            print(f"   ✅ Question embedded ({len(query_embedding)} dimensions)")
             
-            # Step 2: Retrieve relevant chunks
+            # Step 2: Retrieve relevant chunks using vector similarity
+            print(f"   Step 2: Searching for top {top_k} relevant chunks...")
             search_results = self.qdrant_service.search(
                 query_vector=query_embedding,
                 top_k=top_k,
                 paper_ids=paper_ids
             )
+            print(f"   ✅ Found {len(search_results)} relevant chunks")
             
             if not search_results:
+                print(f"   ⚠️  No relevant chunks found")
                 return {
                     'answer': "I couldn't find any relevant information in the papers to answer this question.",
                     'citations': [],
@@ -73,16 +86,22 @@ class RAGPipeline:
                 }
             
             # Step 3: Assemble context and prepare citations
+            print(f"   Step 3: Preparing context from retrieved chunks...")
             context, citations = self._prepare_context(search_results)
+            print(f"   ✅ Context prepared ({len(context)} chars, {len(citations)} citations)")
             
-            # Step 4: Generate answer using Gemini
+            # Step 4: Generate answer using Gemini LLM
+            print(f"   Step 4: Generating answer with LLM...")
             answer = self._generate_answer(question, context)
+            print(f"   ✅ Answer generated")
             
-            # Step 5: Calculate confidence
+            # Step 5: Calculate confidence based on relevance scores
             confidence = self._calculate_confidence(search_results)
+            print(f"   Step 5: Confidence calculated: {confidence:.2%}")
             
-            # Step 6: Extract unique sources
+            # Step 6: Extract unique sources used
             sources_used = list(set([c['paper_title'] for c in citations]))
+            print(f"   ✅ RAG pipeline completed successfully")
             
             response_time = time.time() - start_time
             
@@ -95,7 +114,7 @@ class RAGPipeline:
             }
             
         except Exception as e:
-            print(f"Error in RAG pipeline: {str(e)}")
+            print(f"❌ [RAG] Error in RAG pipeline: {str(e)}")
             return {
                 'answer': f"An error occurred while processing your query: {str(e)}",
                 'citations': [],
@@ -151,16 +170,22 @@ class RAGPipeline:
     
     def _generate_answer(self, question: str, context: str) -> str:
         """
-        Generate answer using Gemini
+        Generate answer using Gemini LLM with carefully crafted prompt
+        
+        This method constructs a prompt that:
+        - Provides clear instructions to the LLM
+        - Includes retrieved context from papers
+        - Enforces citation requirements
+        - Prevents hallucination (making up information)
         
         Args:
             question: User's question
-            context: Retrieved context
+            context: Retrieved context from vector search
             
         Returns:
-            Generated answer
+            Generated answer from LLM
         """
-        # Construct prompt with instructions
+        # Construct prompt with instructions (prompt engineering is critical for quality answers)
         prompt = f"""You are a helpful research assistant. Answer the question based ONLY on the provided context from research papers.
 
 Context from research papers:
@@ -178,14 +203,18 @@ Instructions:
 Answer:"""
         
         try:
+            # Call LLM service to generate answer
             return self.llm_service.generate_text(prompt)
         except Exception as e:
-            print(f"Error generating with LLM service: {e}")
+            print(f"❌ [RAG] Error generating with LLM service: {e}")
             return f"Error generating answer: {e}"
     
     def _calculate_confidence(self, search_results: List[Dict]) -> float:
         """
         Calculate confidence score based on retrieval scores
+        
+        Higher relevance scores → Higher confidence in the answer
+        This is a heuristic measure, not a true probability
         
         Args:
             search_results: Results from vector search

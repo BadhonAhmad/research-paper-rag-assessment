@@ -3,6 +3,7 @@
 import { useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { API_ENDPOINTS } from "@/lib/api";
 
 interface Citation {
   paper_title: string;
@@ -32,12 +33,18 @@ export default function QueryPage() {
     e.preventDefault();
     if (!question.trim()) return;
 
+    console.log("🔍 [Query] Submitting query:", question.trim());
+    console.log("   Parameters: top_k=" + topK);
+
     setLoading(true);
     setError("");
     setResult(null);
 
+    const startTime = performance.now();
+
     try {
-      const response = await fetch("http://localhost:8000/api/query", {
+      console.log("   → Sending POST request to", API_ENDPOINTS.query);
+      const response = await fetch(API_ENDPOINTS.query, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -47,13 +54,21 @@ export default function QueryPage() {
       });
 
       const data = await response.json();
+      const responseTime = ((performance.now() - startTime) / 1000).toFixed(2);
 
       if (response.ok) {
+        console.log(`✅ [Query] Response received in ${responseTime}s`);
+        console.log(`   Cached: ${data.cached || false}`);
+        console.log(`   Confidence: ${(data.confidence * 100).toFixed(1)}%`);
+        console.log(`   Sources: ${data.sources_used?.length || 0} papers`);
         setResult(data);
       } else {
+        console.error("❌ [Query] Error:", data.detail || "Query failed");
         setError(data.detail || "Query failed");
       }
     } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : "Unknown error";
+      console.error("❌ [Query] Network error:", errorMsg);
       setError("Network error - is the backend running?");
     } finally {
       setLoading(false);

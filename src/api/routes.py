@@ -61,11 +61,15 @@ async def upload_paper(
     - Generates embeddings
     - Stores in Qdrant and database
     """
+    print(f"\n📤 [UPLOAD] Starting paper upload: {file.filename}")
+    
     # Validate file
     if not file.filename:
+        print("❌ [UPLOAD] Error: No filename provided")
         raise HTTPException(status_code=400, detail="No file provided")
     
     if not file.filename.endswith('.pdf'):
+        print(f"❌ [UPLOAD] Error: Invalid file type - {file.filename}")
         raise HTTPException(
             status_code=400,
             detail=f"Invalid file type. Only PDF files are supported. Received: {file.filename}"
@@ -77,17 +81,22 @@ async def upload_paper(
     file.file.seek(0)  # Reset to beginning
     
     if file_size > 50 * 1024 * 1024:  # 50 MB
+        print(f"❌ [UPLOAD] Error: File too large - {file_size / (1024*1024):.2f} MB")
         raise HTTPException(
             status_code=400,
             detail=f"File too large. Maximum size is 50 MB. Your file: {file_size / (1024*1024):.2f} MB"
         )
     
     if file_size == 0:
+        print("❌ [UPLOAD] Error: Empty file")
         raise HTTPException(status_code=400, detail="File is empty")
+    
+    print(f"✅ [UPLOAD] File validation passed - Size: {file_size / (1024*1024):.2f} MB")
     
     # Check if paper already exists
     existing = db.query(Paper).filter(Paper.filename == file.filename).first()
     if existing:
+        print(f"❌ [UPLOAD] Error: Duplicate paper - {file.filename} already exists (ID: {existing.id})")
         raise HTTPException(
             status_code=400,
             detail=f"Paper '{file.filename}' already exists with ID {existing.id}. Delete it first or rename the file."
@@ -99,16 +108,24 @@ async def upload_paper(
         tmp_path = tmp.name
     
     try:
-        # Process PDF
+        # Process PDF - Extract text and create chunks
+        print(f"📄 [UPLOAD] Processing PDF: {file.filename}")
         chunks, metadata = pdf_processor.process_pdf(tmp_path)
+        print(f"✅ [UPLOAD] PDF processed - {len(chunks)} chunks created")
+        print(f"   Title: {metadata.get('title', 'N/A')}")
+        print(f"   Authors: {metadata.get('authors', 'N/A')}")
+        print(f"   Year: {metadata.get('year', 'N/A')}")
+        print(f"   Pages: {metadata.get('total_pages', 'N/A')}")
         
         if not chunks:
+            print("❌ [UPLOAD] Error: No text extracted from PDF")
             raise HTTPException(
                 status_code=400,
                 detail="Failed to extract text from PDF. The file may be corrupted, password-protected, or contain only images."
             )
         
-        # Create paper record
+        # Create paper record in database
+        print(f"💾 [UPLOAD] Creating database record for paper")
         paper = Paper(
             title=metadata['title'],
             authors=metadata['authors'],
@@ -116,16 +133,19 @@ async def upload_paper(
             filename=file.filename,
             file_path=tmp_path,
             total_pages=metadata['total_pages'],
-            processed=0,  # Processing
+            processed=0,  # Processing status
             chunk_count=len(chunks)
         )
         db.add(paper)
         db.commit()
         db.refresh(paper)
+        print(f"✅ [UPLOAD] Paper record created with ID: {paper.id}")
         
         # Generate embeddings for all chunks
+        print(f"🔢 [UPLOAD] Generating embeddings for {len(chunks)} chunks...")
         chunk_texts = [chunk.page_content for chunk in chunks]
         embeddings = embedding_service.embed_texts(chunk_texts)
+        print(f"✅ [UPLOAD] Embeddings generated successfully")
         
         # Prepare payloads
         payloads = []
@@ -138,17 +158,23 @@ async def upload_paper(
                 'chunk_index': chunk.metadata.get('chunk_index')
             })
         
-        # Store in Qdrant
+        # Store in Qdrant vector database
+        print(f"🗄️  [UPLOAD] Storing vectors in Qdrant...")
         stored_count = qdrant_service.add_vectors(embeddings, payloads, paper.id)
+        print(f"✅ [UPLOAD] {stored_count} vectors stored in Qdrant")
         
-        # Update paper status
+        # Update paper status to processed
         paper.processed = 1
         paper.chunk_count = stored_count
         db.commit()
+        print(f"✅ [UPLOAD] Paper status updated to processed")
         
-        # Clear cache since new content is available (queries without paper_ids filter should get new results)
+        # Clear cache since new content is available
         if query_cache and config.CACHE_ENABLED:
-            query_cache.clear()  # Simple approach: clear all cache when new paper added
+            query_cache.clear()
+            print(f"🗑️  [UPLOAD] Query cache cleared for new content")
+        
+        print(f"✨ [UPLOAD] Paper upload completed successfully: {paper.title}\n")
         
         return PaperUploadResponse(
             paper_id=paper.id,
@@ -206,10 +232,14 @@ async def query_papers(
     - Returns answer with citations
     - Caches result for future queries
     """
+    print(f"\n🔍 [QUERY] Received question: \"{request.question[:100]}...\"")
+    print(f"   top_k={request.top_k}, paper_ids={request.paper_ids}")
+    
     try:
         # Check cache first (if enabled)
         cache_hit = False
         if query_cache and config.CACHE_ENABLED:
+            print(f"💾 [QUERY] Checking cache...")
             cached_result = query_cache.get(
                 question=request.question,
                 top_k=request.top_k,
@@ -222,9 +252,11 @@ async def query_papers(
                 # Add cache indicator to response
                 result['cached'] = True
                 result['response_time'] = 0.001  # Near-instant from cache
+                print(f"⚡ [QUERY] Cache HIT! Returning cached result instantly")
         
         # Cache miss - run RAG pipeline
         if not cache_hit:
+            print(f"🔄 [QUERY] Cache MISS - Running full RAG pipeline...")
             result = rag_pipeline.query(
                 question=request.question,
                 top_k=request.top_k,
@@ -254,6 +286,7 @@ async def query_papers(
         )
         db.add(query_record)
         db.commit()
+        print(f"📝 [QUERY] Query saved to history\n")
         
         return QueryResponse(**result)
         
@@ -317,12 +350,18 @@ async def get_paper(paper_id: int, db: Session = Depends(get_db)):
 @router.delete("/api/papers/{paper_id}")
 async def delete_paper(paper_id: int, db: Session = Depends(get_db)):
     """Delete a paper and its vectors"""
+    print(f"\n🗑️  [DELETE] Deleting paper ID: {paper_id}")
+    
     paper = db.query(Paper).filter(Paper.id == paper_id).first()
     if not paper:
+        print(f"❌ [DELETE] Paper not found: {paper_id}")
         raise HTTPException(status_code=404, detail=f"Paper with ID {paper_id} not found")
     
+    print(f"   Title: {paper.title}")
+    
     try:
-        # Delete from Qdrant
+        # Delete from Qdrant vector database
+        print(f"🗄️  [DELETE] Removing vectors from Qdrant...")
         qdrant_service.delete_by_paper_id(paper_id)
         
         # Delete file if exists
@@ -336,10 +375,12 @@ async def delete_paper(paper_id: int, db: Session = Depends(get_db)):
         # Invalidate cached queries for this paper
         if query_cache and config.CACHE_ENABLED:
             query_cache.invalidate_by_paper(paper_id)
+            print(f"💾 [DELETE] Invalidated cached queries for paper {paper_id}")
         
         # Delete from database
         db.delete(paper)
         db.commit()
+        print(f"✅ [DELETE] Paper '{paper.title}' deleted successfully\n")
         
         return {
             "success": True,
