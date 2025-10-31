@@ -39,7 +39,7 @@ This is a production-ready RAG (Retrieval-Augmented Generation) system that enab
 - **Markdown Rendering**: react-markdown
 
 ### Infrastructure
-- **Containerization**: Docker & Docker Compose
+- **Containerization**: Docker (for Qdrant)
 - **API Documentation**: Swagger/OpenAPI (FastAPI auto-generated)
 
 ---
@@ -206,7 +206,7 @@ research-paper-rag-assessment/
 │   └── tailwind.config.ts         # Tailwind configuration
 │
 ├── sample_papers/                 # Test dataset (5 PDFs)
-├── docker-compose.yml             # Multi-service orchestration
+
 ├── .gitignore                     # Git ignore rules (protects API keys)
 │
 ├── README.md                      # This file (main documentation)
@@ -235,109 +235,38 @@ Before running the application, ensure you have the following installed:
 
 ---
 
-## 📥 Installation & Setup
+## 📥 Quick Start (10 minutes)
 
-### Step 1: Clone the Repository
+### Step 1: Clone Repository
 
 ```bash
-git clone https://github.com/BadhonAhmad/research-paper-rag-assessment.git
+git clone https://github.com/YOUR_USERNAME/research-paper-rag-assessment.git
 cd research-paper-rag-assessment
 ```
 
-### Step 2: Start Docker Desktop
-
-**Windows/Mac**: Open Docker Desktop application and wait for it to start (green icon in system tray)
-
-**Linux**:
-```bash
-sudo systemctl start docker
-```
-
-**Verify Docker is running**:
-```bash
-docker --version
-docker ps
-```
-
-### Step 3: Start Qdrant Vector Database
-
-Run Qdrant in a Docker container:
+### Step 2: Start Qdrant Vector Database
 
 ```bash
-docker run -d -p 6333:6333 -p 6334:6334 ^
-  -v qdrant_storage:/qdrant/storage ^
-  --name qdrant ^
-  qdrant/qdrant
+# Install Docker Desktop first, then:
+docker run -d -p 6333:6333 qdrant/qdrant
+# Verify: http://localhost:6333/dashboard
 ```
 
-**Verify Qdrant is running**:
-- Open browser: http://localhost:6333/dashboard
-- You should see the Qdrant web interface
-
-### Step 4: Configure Backend Environment
-
-Navigate to the backend directory and set up environment variables:
+### Step 3: Setup Backend
 
 ```bash
 cd src
-```
 
-Create a `.env` file (or copy from `.env.example`):
-
-```bash
-# Windows PowerShell
-Copy-Item .env.example .env
-
-# Linux/Mac
+# Copy environment template and add your Gemini API key
 cp .env.example .env
-```
+# Edit .env and set GEMINI_API_KEY=your-actual-key-here
 
-Edit `.env` and add your Gemini API key:
-
-```env
-# .env file
-GEMINI_API_KEY=your_actual_api_key_here
-GEMINI_MODEL=gemini-2.5-flash
-
-QDRANT_HOST=localhost
-QDRANT_PORT=6333
-
-DATABASE_URL=sqlite:///./research_papers.db
-
-CACHE_ENABLED=true
-CACHE_TTL_SECONDS=3600
-CACHE_MAX_SIZE=1000
-```
-
-### Step 5: Install Backend Dependencies
-
-```bash
-# Create virtual environment (recommended)
-python -m venv venv
-
-# Activate virtual environment
-# Windows:
-venv\Scripts\activate
-
-# Linux/Mac:
-source venv/bin/activate
-
-# Install dependencies
+# Install Python dependencies
 pip install -r requirements.txt
-```
 
-**Dependencies installed**:
-- FastAPI, Uvicorn (API framework)
-- google-genai (Gemini API)
-- sentence-transformers (embeddings)
-- qdrant-client (vector database)
-- PyPDF2, langchain (PDF processing)
-- SQLAlchemy (ORM)
-
-### Step 6: Start Backend Server
-
-```bash
+# Run backend server
 python main.py
+# Backend runs on http://localhost:8000
 ```
 
 **Expected output**:
@@ -370,39 +299,45 @@ INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
 - Open browser: http://localhost:8000
 - API docs: http://localhost:8000/docs
 
-### Step 7: Install Frontend Dependencies
-
-Open a **new terminal** (keep backend running):
+### Step 4: Setup Frontend
 
 ```bash
+# In a new terminal
 cd frontend
 
 # Install dependencies
 npm install
-```
 
-**Dependencies installed**:
-- Next.js 14, React 18
-- Tailwind CSS
-- react-markdown (for formatting AI responses)
-
-### Step 8: Start Frontend Development Server
-
-```bash
+# Start development server
 npm run dev
-```
-
-**Expected output**:
-```
-  ▲ Next.js 14.0.4
-  - Local:        http://localhost:3000
-  - Environments: .env
-
- ✓ Ready in 2.1s
+# Frontend runs on http://localhost:3000
 ```
 
 **Access the application**:
 - Open browser: http://localhost:3000
+
+### Step 5: Test the System
+
+```bash
+# Method 1: Use the Web UI
+# Open http://localhost:3000 in your browser
+# Upload a PDF and ask questions
+
+# Method 2: Use API directly
+# Upload a paper
+curl -X POST "http://localhost:8000/api/papers/upload" \
+  -F "file=@path/to/your/paper.pdf"
+
+# Query the paper
+curl -X POST "http://localhost:8000/api/query" \
+  -H "Content-Type: application/json" \
+  -d '{"question": "What methodology was used?", "top_k": 5}'
+```
+
+### Step 6: View API Documentation
+
+- **Swagger UI**: http://localhost:8000/docs
+- **ReDoc**: http://localhost:8000/redoc
 
 ---
 
@@ -671,7 +606,7 @@ python scripts/evaluate_results.py
 **❌ NEVER commit these files:**
 - `.env`
 - `.env.local`
-- `.env.docker`
+
 - `src/.env`
 
 These are already in `.gitignore`.

@@ -63,17 +63,26 @@ class RAGPipeline:
         try:
             # Step 1: Embed the question into vector space
             print(f"   Step 1: Embedding question...")
-            query_embedding = self.embedding_service.embed_text(question)
+            # Optionally expand query for better retrieval
+            expanded_question = self._expand_query(question)
+            query_embedding = self.embedding_service.embed_text(expanded_question)
             print(f"   ✅ Question embedded ({len(query_embedding)} dimensions)")
             
             # Step 2: Retrieve relevant chunks using vector similarity
-            print(f"   Step 2: Searching for top {top_k} relevant chunks...")
+            # Retrieve more candidates than needed for better quality filtering
+            print(f"   Step 2: Searching for top {top_k * 2} relevant chunks...")
             search_results = self.qdrant_service.search(
                 query_vector=query_embedding,
-                top_k=top_k,
-                paper_ids=paper_ids
+                top_k=top_k * 2,  # Retrieve 2x candidates for filtering
+                paper_ids=paper_ids,
+                score_threshold=0.3  # Filter out very low relevance chunks
             )
             print(f"   ✅ Found {len(search_results)} relevant chunks")
+            
+            # Filter and re-rank results for better quality
+            search_results = self._filter_and_rerank(search_results, question)
+            search_results = search_results[:top_k]  # Keep only top K after filtering
+            print(f"   ✅ After filtering: {len(search_results)} high-quality chunks")
             
             if not search_results:
                 print(f"   ⚠️  No relevant chunks found")
@@ -123,6 +132,95 @@ class RAGPipeline:
                 'response_time': time.time() - start_time
             }
     
+    def _expand_query(self, question: str) -> str:
+        """
+        Expand query with context for better retrieval
+        
+        Adds implicit context to improve embedding quality.
+        For example: "What is attention?" -> "What is attention mechanism in neural networks?"
+        
+        Args:
+            question: Original question
+            
+        Returns:
+            Expanded question with additional context
+        """
+        # Add research paper context to improve retrieval
+        # This helps the embedding model understand we're looking for academic content
+        expanded = f"Research paper query: {question}"
+        
+        # Add common research terms if not present
+        question_lower = question.lower()
+        if 'method' in question_lower and 'methodology' not in question_lower:
+            expanded += " methodology approach"
+        if 'result' in question_lower and 'findings' not in question_lower:
+            expanded += " findings outcomes"
+        if 'what is' in question_lower or 'define' in question_lower:
+            expanded += " definition explanation"
+        
+        return expanded
+    
+    def _filter_and_rerank(self, search_results: List[Dict], question: str) -> List[Dict]:
+        """
+        Filter and re-rank search results for better quality
+        
+        Removes duplicates, filters low-quality chunks, and ensures diversity
+        
+        Args:
+            search_results: Raw search results from vector DB
+            question: Original user question
+            
+        Returns:
+            Filtered and re-ranked results
+        """
+        if not search_results:
+            return []
+        
+        # Step 1: Remove near-duplicate chunks (same paper, similar text)
+        unique_results = []
+        seen_texts = set()
+        
+        for result in search_results:
+            text = result['payload'].get('text', '')
+            # Use first 100 chars as fingerprint
+            fingerprint = text[:100].lower().strip()
+            
+            if fingerprint not in seen_texts:
+                seen_texts.add(fingerprint)
+                unique_results.append(result)
+        
+        # Step 2: Boost chunks that contain question keywords
+        question_words = set(question.lower().split())
+        # Remove common stop words
+        stop_words = {'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'is', 'are', 'was', 'were', 'what', 'how', 'why', 'when', 'where'}
+        question_keywords = question_words - stop_words
+        
+        for result in unique_results:
+            text = result['payload'].get('text', '').lower()
+            # Count keyword matches
+            keyword_matches = sum(1 for word in question_keywords if word in text)
+            # Boost score based on keyword matches (up to 15% boost)
+            boost = min(keyword_matches * 0.03, 0.15)
+            result['boosted_score'] = result['score'] * (1 + boost)
+        
+        # Step 3: Re-sort by boosted score
+        unique_results.sort(key=lambda x: x.get('boosted_score', x['score']), reverse=True)
+        
+        # Step 4: Ensure diversity - don't return all chunks from same section
+        diverse_results = []
+        section_counts = {}
+        
+        for result in unique_results:
+            section = result['payload'].get('section', 'Other')
+            section_count = section_counts.get(section, 0)
+            
+            # Limit chunks per section (max 3 from same section)
+            if section_count < 3:
+                diverse_results.append(result)
+                section_counts[section] = section_count + 1
+        
+        return diverse_results
+    
     def _prepare_context(self, search_results: List[Dict]) -> Tuple[str, List[Dict]]:
         """
         Prepare context from search results and create citations
@@ -138,24 +236,31 @@ class RAGPipeline:
         
         for i, result in enumerate(search_results):
             payload = result['payload']
-            score = result['score']
+            score = result.get('boosted_score', result['score'])  # Use boosted score if available
             
-            # Build context chunk with source info
+            # Build context chunk with rich source info
             chunk_text = payload.get('text', '')
             title = payload.get('title', 'Unknown')
             page = payload.get('page', 0)
             section = payload.get('section', 'Unknown')
+            authors = payload.get('authors', 'Unknown')
             
-            # Add to context with reference number
-            context_parts.append(f"[{i+1}] {chunk_text}")
+            # Add to context with reference number and metadata for better citation
+            # Include source info so LLM knows where info comes from
+            context_part = f"""[Reference {i+1}]
+Source: "{title}" (Page {page}, Section: {section})
+Content: {chunk_text}"""
+            context_parts.append(context_part)
             
-            # Create citation
+            # Create detailed citation with all metadata
             citations.append({
                 'paper_title': title,
+                'authors': authors,
                 'section': section,
                 'page': page,
                 'relevance_score': round(score, 3),
-                'chunk_text': chunk_text[:200] + '...' if len(chunk_text) > 200 else chunk_text
+                'chunk_text': chunk_text[:300] + '...' if len(chunk_text) > 300 else chunk_text,
+                'reference_number': i + 1
             })
         
         # Join context, limit by length
@@ -186,21 +291,26 @@ class RAGPipeline:
             Generated answer from LLM
         """
         # Construct prompt with instructions (prompt engineering is critical for quality answers)
-        prompt = f"""You are a helpful research assistant. Answer the question based ONLY on the provided context from research papers.
+        prompt = f"""You are an expert research assistant with deep knowledge of academic papers. Your task is to provide accurate, well-cited answers based ONLY on the provided context.
 
-Context from research papers:
+CONTEXT FROM RESEARCH PAPERS:
 {context}
 
-Question: {question}
+USER QUESTION: {question}
 
-Instructions:
-- Answer concisely and accurately based on the context
-- Reference specific papers or sections when possible
-- If the context doesn't contain enough information, say so
-- Do not make up information outside the provided context
-- Use technical language appropriate for researchers
+INSTRUCTIONS FOR YOUR ANSWER:
+1. **Accuracy First**: Base your answer STRICTLY on the provided context. If information is insufficient, clearly state what's missing.
+2. **Citation Style**: When referencing information, cite using format [Reference #] (e.g., "According to [1], the transformer architecture...").
+3. **Be Specific**: Include specific details like numbers, methods, results from the papers when available.
+4. **No Hallucination**: Never invent information, statistics, or citations not present in the context.
+5. **Structured Response**: Organize your answer clearly with:
+   - Direct answer to the question
+   - Supporting evidence from papers with citations
+   - Any caveats or limitations based on available context
+6. **Technical Precision**: Use precise academic language and maintain technical accuracy.
+7. **Uncertainty Acknowledgment**: If the context is ambiguous or incomplete, explicitly say so.
 
-Answer:"""
+ANSWER:"""
         
         try:
             # Call LLM service to generate answer
@@ -211,10 +321,13 @@ Answer:"""
     
     def _calculate_confidence(self, search_results: List[Dict]) -> float:
         """
-        Calculate confidence score based on retrieval scores
+        Calculate confidence score based on multiple factors
         
-        Higher relevance scores → Higher confidence in the answer
-        This is a heuristic measure, not a true probability
+        Considers:
+        - Relevance scores (higher = better match)
+        - Score distribution (tight cluster = high confidence)
+        - Number of results (more agreement = higher confidence)
+        - Diversity of sources (multiple papers = higher confidence)
         
         Args:
             search_results: Results from vector search
@@ -225,11 +338,33 @@ Answer:"""
         if not search_results:
             return 0.0
         
-        # Use average of top-3 scores
-        top_scores = [r['score'] for r in search_results[:3]]
+        # Factor 1: Average relevance score (60% weight)
+        top_scores = [r.get('boosted_score', r['score']) for r in search_results[:3]]
         avg_score = sum(top_scores) / len(top_scores)
+        score_factor = avg_score * 0.6
         
-        # Normalize to 0-1 range (cosine similarity is already 0-1)
-        confidence = min(max(avg_score, 0.0), 1.0)
+        # Factor 2: Score consistency (20% weight)
+        # If top results have similar scores, we're more confident
+        if len(search_results) >= 3:
+            score_std = (max(top_scores) - min(top_scores))
+            # Lower std = higher consistency = higher confidence
+            consistency_factor = (1 - min(score_std, 0.3) / 0.3) * 0.2
+        else:
+            consistency_factor = 0.1
+        
+        # Factor 3: Result count (10% weight)
+        # More high-quality results = higher confidence
+        count_factor = min(len(search_results) / 5, 1.0) * 0.1
+        
+        # Factor 4: Source diversity (10% weight)
+        # Multiple papers agreeing = higher confidence
+        unique_papers = len(set(r['payload'].get('title', '') for r in search_results))
+        diversity_factor = min(unique_papers / 3, 1.0) * 0.1
+        
+        # Combine all factors
+        confidence = score_factor + consistency_factor + count_factor + diversity_factor
+        
+        # Normalize to 0-1 range
+        confidence = min(max(confidence, 0.0), 1.0)
         
         return round(confidence, 3)

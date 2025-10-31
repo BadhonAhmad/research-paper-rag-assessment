@@ -12,14 +12,22 @@ import os
 class PDFProcessor:
     """Handle PDF extraction, metadata parsing, and chunking"""
     
-    def __init__(self, chunk_size: int = 500, chunk_overlap: int = 50):
+    def __init__(self, chunk_size: int = 800, chunk_overlap: int = 200):
+        """
+        Initialize PDF processor with optimized chunking parameters
+        
+        Larger chunks (800 chars) provide more context per chunk
+        Higher overlap (200 chars) preserves context across boundaries
+        """
         self.chunk_size = chunk_size
         self.chunk_overlap = chunk_overlap
         self.text_splitter = RecursiveCharacterTextSplitter(
             chunk_size=chunk_size,
             chunk_overlap=chunk_overlap,
+            # Hierarchical separators - tries paragraph, then sentence, then word
             separators=["\n\n", "\n", ". ", "! ", "? ", "; ", ", ", " ", ""],
             length_function=len,
+            keep_separator=True,  # Keep separators for better context
         )
     
     def extract_metadata(self, pdf_path: str) -> Dict[str, any]:

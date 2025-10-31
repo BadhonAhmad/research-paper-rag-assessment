@@ -26,14 +26,15 @@ EMBEDDING_DIM = 384  # Dimension for all-MiniLM-L6-v2
 # Database Settings
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./research_papers.db")
 
-# Processing Settings
-CHUNK_SIZE = int(os.getenv("CHUNK_SIZE", "500"))
-CHUNK_OVERLAP = int(os.getenv("CHUNK_OVERLAP", "50"))
-TOP_K_RESULTS = int(os.getenv("TOP_K_RESULTS", "5"))
+# Processing Settings - Optimized for better retrieval
+CHUNK_SIZE = int(os.getenv("CHUNK_SIZE", "800"))  # Increased for more context per chunk
+CHUNK_OVERLAP = int(os.getenv("CHUNK_OVERLAP", "200"))  # Increased overlap to preserve context
+TOP_K_RESULTS = int(os.getenv("TOP_K_RESULTS", "8"))  # Retrieve more candidates for better coverage
 
-# Query Settings
-MAX_CONTEXT_LENGTH = int(os.getenv("MAX_CONTEXT_LENGTH", "2000"))
+# Query Settings - Enhanced for accuracy
+MAX_CONTEXT_LENGTH = int(os.getenv("MAX_CONTEXT_LENGTH", "4000"))  # More context for LLM
 CONFIDENCE_THRESHOLD = float(os.getenv("CONFIDENCE_THRESHOLD", "0.7"))
+MIN_RELEVANCE_SCORE = float(os.getenv("MIN_RELEVANCE_SCORE", "0.3"))  # Filter low-quality chunks
 
 # Cache Settings
 CACHE_ENABLED = os.getenv("CACHE_ENABLED", "true").lower() == "true"
