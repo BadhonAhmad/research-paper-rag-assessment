@@ -37,7 +37,8 @@ class RAGPipeline:
         self,
         question: str,
         top_k: int = 5,
-        paper_ids: List[int] = None
+        paper_ids: List[int] = None,
+        db_session = None
     ) -> Dict:
         """
         Process a query through the RAG pipeline
@@ -96,7 +97,7 @@ class RAGPipeline:
             
             # Step 3: Assemble context and prepare citations
             print(f"   Step 3: Preparing context from retrieved chunks...")
-            context, citations = self._prepare_context(search_results)
+            context, citations = self._prepare_context(search_results, db_session)
             print(f"   ✅ Context prepared ({len(context)} chars, {len(citations)} citations)")
             
             # Step 4: Generate answer using Gemini LLM
@@ -221,18 +222,29 @@ class RAGPipeline:
         
         return diverse_results
     
-    def _prepare_context(self, search_results: List[Dict]) -> Tuple[str, List[Dict]]:
+    def _prepare_context(self, search_results: List[Dict], db_session=None) -> Tuple[str, List[Dict]]:
         """
         Prepare context from search results and create citations
         
         Args:
             search_results: Results from vector search
+            db_session: Optional database session to lookup filenames
             
         Returns:
             Tuple of (context_string, citations_list)
         """
         context_parts = []
         citations = []
+        
+        # Build a cache of paper_id -> filename mappings from database
+        filename_cache = {}
+        if db_session:
+            try:
+                from models.database import Paper
+                papers = db_session.query(Paper).all()
+                filename_cache = {paper.id: paper.filename for paper in papers}
+            except:
+                pass
         
         for i, result in enumerate(search_results):
             payload = result['payload']
@@ -241,6 +253,15 @@ class RAGPipeline:
             # Build context chunk with rich source info
             chunk_text = payload.get('text', '')
             title = payload.get('title', 'Unknown')
+            filename = payload.get('filename', 'Unknown')  # Get PDF filename
+            
+            # Fallback: If filename is 'Unknown', try to get it from database using paper_id
+            if filename == 'Unknown' and 'paper_id' in payload:
+                paper_id = payload.get('paper_id')
+                if paper_id in filename_cache:
+                    filename = filename_cache[paper_id]
+                    print(f"   [Fallback] Retrieved filename '{filename}' from DB for paper_id={paper_id}")
+            
             page = payload.get('page', 0)
             section = payload.get('section', 'Unknown')
             authors = payload.get('authors', 'Unknown')
@@ -248,13 +269,14 @@ class RAGPipeline:
             # Add to context with reference number and metadata for better citation
             # Include source info so LLM knows where info comes from
             context_part = f"""[Reference {i+1}]
-Source: "{title}" (Page {page}, Section: {section})
+Source: "{title}" (File: {filename}, Page {page}, Section: {section})
 Content: {chunk_text}"""
             context_parts.append(context_part)
             
-            # Create detailed citation with all metadata
+            # Create detailed citation with all metadata including filename
             citations.append({
                 'paper_title': title,
+                'filename': filename,  # PDF filename for clear source identification
                 'authors': authors,
                 'section': section,
                 'page': page,

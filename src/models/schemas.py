@@ -19,6 +19,7 @@ class PaperUploadResponse(BaseModel):
 class Citation(BaseModel):
     """Citation information"""
     paper_title: str
+    filename: str  # PDF filename for clear source identification
     section: Optional[str] = None
     page: int
     relevance_score: float = Field(..., ge=0.0, le=1.0)

@@ -155,6 +155,7 @@ async def upload_paper(
                 'page': chunk.metadata.get('page'),
                 'section': chunk.metadata.get('section'),
                 'title': metadata['title'],
+                'filename': file.filename,  # Include filename for citation tracking
                 'chunk_index': chunk.metadata.get('chunk_index')
             })
         
@@ -260,7 +261,8 @@ async def query_papers(
             result = rag_pipeline.query(
                 question=request.question,
                 top_k=request.top_k,
-                paper_ids=request.paper_ids
+                paper_ids=request.paper_ids,
+                db_session=db
             )
             result['cached'] = False
             
