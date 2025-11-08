@@ -127,22 +127,22 @@ This is a production-ready RAG (Retrieval-Augmented Generation) system that enab
 ┌──────────────────────────────────────────────────────────────────┐
 │                   FastAPI Backend (Port 8000)                    │
 │                                                                  │
-│  ┌────────────────────┐           ┌──────────────────────────┐ │
-│  │  PDF Processor     │           │    RAG Pipeline          │ │
-│  │  - Extract text    │           │  - Query embedding       │ │
-│  │  - Section detect  │           │  - Vector search         │ │
-│  │  - Chunk (500ch)   │           │  - Context assembly      │ │
-│  │  - Generate embed  │           │  - LLM generation        │ │
-│  └────────────────────┘           │  - Citation extraction   │ │
-│                                   └──────────────────────────┘ │
+│  ┌────────────────────┐           ┌──────────────────────────┐   │
+│  │  PDF Processor     │           │    RAG Pipeline          │   │
+│  │  - Extract text    │           │  - Query embedding       │   │
+│  │  - Section detect  │           │  - Vector search         │   │
+│  │  - Chunk (500ch)   │           │  - Context assembly      │   │
+│  │  - Generate embed  │           │  - LLM generation        │   │
+│  └────────────────────┘           │  - Citation extraction   │   │
+│                                   └──────────────────────────┘   │
 │                                                                  │
-│  ┌────────────────────┐           ┌──────────────────────────┐ │
-│  │  Cache Service     │           │    LLM Service           │ │
-│  │  - Query normalize │           │  - Google Gemini API     │ │
-│  │  - LRU eviction    │           │  - Prompt engineering    │ │
-│  │  - TTL: 1 hour     │           │  - Response parsing      │ │
-│  └────────────────────┘           └──────────────────────────┘ │
-└───────┬──────────────────┬──────────────────┬───────────────────┘
+│  ┌────────────────────┐           ┌──────────────────────────┐   │
+│  │  Cache Service     │           │    LLM Service           │   │
+│  │  - Query normalize │           │  - Google Gemini API     │   │
+│  │  - LRU eviction    │           │  - Prompt engineering    │   │
+│  │  - TTL: 1 hour     │           │  - Response parsing      │   │
+│  └────────────────────┘           └──────────────────────────┘   │
+└───────┬──────────────────┬──────────────────┬───────────────────-┘
         │                  │                  │
         ▼                  ▼                  ▼
 ┌───────────────┐  ┌───────────────┐  ┌──────────────────┐

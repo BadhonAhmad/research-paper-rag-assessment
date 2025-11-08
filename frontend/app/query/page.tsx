@@ -8,7 +8,6 @@ import jsPDF from "jspdf";
 
 interface Citation {
   paper_title: string;
-  filename: string;
   section: string | null;
   page: number;
   relevance_score: number;
@@ -171,14 +170,9 @@ export default function QueryPage() {
           }
 
           addText(`[${idx + 1}] ${citation.paper_title}`, 10, true);
-          pdf.setFontSize(8);
-          pdf.setFont("helvetica", "normal");
-          pdf.setTextColor(0, 0, 255);
-          pdf.text(`File: ${citation.filename}`, margin + 5, yPosition);
-          yPosition += 4;
-          
-          pdf.setTextColor(0, 0, 0);
           pdf.setFontSize(9);
+          pdf.setFont("helvetica", "normal");
+          
           const citationInfo = `Section: ${citation.section || "N/A"} | Page: ${citation.page} | Relevance: ${(citation.relevance_score * 100).toFixed(0)}%`;
           pdf.text(citationInfo, margin + 5, yPosition);
           yPosition += 5;
@@ -347,14 +341,9 @@ export default function QueryPage() {
                   className="border-l-4 border-green-500 pl-4 py-2 bg-gray-50"
                 >
                   <div className="flex justify-between items-start mb-2">
-                    <div>
-                      <h3 className="font-semibold text-gray-900">
-                        {citation.paper_title}
-                      </h3>
-                      <p className="text-xs text-blue-600 font-medium mt-1">
-                        📄 {citation.filename}
-                      </p>
-                    </div>
+                    <h3 className="font-semibold text-gray-900">
+                      {citation.paper_title}
+                    </h3>
                     <span className="text-sm bg-green-100 text-green-800 px-2 py-1 rounded">
                       {(citation.relevance_score * 100).toFixed(0)}% relevant
                     </span>
